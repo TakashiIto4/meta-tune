@@ -127,7 +127,9 @@ class MP3EditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("MetaTune")
-        self.root.iconbitmap('music.ico')
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        icon_path = os.path.join(script_dir, 'music.ico')
+        self.root.iconbitmap(icon_path)
         self.file_path = ""
         self.mp3_editor = None
         self.cover_data = None
