@@ -157,6 +157,7 @@ class MP3EditorApp:
         self.cover_url_entry.pack()
         tk.Button(root, text="Download Cover Image from URL", command=self.download_cover_from_url).pack()
         tk.Button(root, text="Save Metadata", command=self.save_metadata).pack()
+        tk.Button(root, text="Save Cover Image as PNG/JPG", command=self.save_cover_image).pack()
 
     def select_file(self):
         self.file_path = filedialog.askopenfilename(filetypes=[("MP3 files", "*.mp3")])
@@ -249,6 +250,31 @@ class MP3EditorApp:
 
     def on_save_complete(self):
         messagebox.showinfo("Success", "Metadata saved successfully.")
+    
+    def save_cover_image(self):
+        if not self.cover_data:
+            messagebox.showwarning("No Cover", "No cover image to save.")
+            return
+
+        # 優先順位：album → title → "cover"
+        base_name = (
+            self.mp3_editor.metadata.get("album")
+            or self.mp3_editor.metadata.get("title")
+            or "cover"
+        )
+        # ファイル名に使用できない文字を削除または置換
+        base_name = re.sub(r'[<>:"/\\|?*]', '_', base_name)
+
+        # 保存先ディレクトリ（MP3ファイルと同じ場所）
+        save_dir = os.path.dirname(self.file_path) if self.file_path else "."
+        save_path = os.path.join(save_dir, f"{base_name}.png")
+
+        try:
+            image = Image.open(BytesIO(self.cover_data))
+            image.save(save_path, format="PNG")
+            messagebox.showinfo("Success", f"Cover image saved as:\n{save_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save image: {e}")
 
 root = tk.Tk()
 app = MP3EditorApp(root)
