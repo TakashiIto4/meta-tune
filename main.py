@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -75,8 +76,11 @@ class MP3Editor:
             messagebox.showwarning("No Title", "Please enter a title before saving.")
             return
         
-        output_path = os.path.join(os.path.dirname(self.file_path), f"{self.metadata['title']}.mp3")
-        # タイトルを変えない場合、出力ファイル名がすでに存在しffmpegの処理が解決しないため一度.temp.mp3で出力する
+        # ファイル名に使用できない記号を"_"に置換
+        sanitized_title = re.sub(r'[<>:"/\\|?*]', '_', self.metadata['title'])
+
+        output_path = os.path.join(os.path.dirname(self.file_path), f"{sanitized_title}.mp3")
+        # タイトルを変えない場合、出力ファイル名がすでに存在しffmpegの処理が解決しないため一度.temp.mp3で出力する用のパス
         output_path_temp = os.path.join(os.path.dirname(output_path), ".temp.mp3")
         print(f"output_path: {output_path}")
             
@@ -131,7 +135,7 @@ class MP3EditorApp:
         icon_path = os.path.join(script_dir, 'music.ico')
         self.root.iconbitmap(icon_path)
         self.file_path = ""
-        self.mp3_editor = None
+        self.mp3_editor = MP3Editor("")
         self.cover_data = None
 
         input_field_width = 70
@@ -240,12 +244,6 @@ class MP3EditorApp:
         album = self.album_entry.get()
         artist = self.artist_entry.get()
         self.mp3_editor.set_metadata(title, album, artist, self.cover_data)
-
-        # 別スレッドで保存処理を実行
-        thread = threading.Thread(target=self.save_in_background)
-        thread.start()
-
-    def save_in_background(self):
         self.mp3_editor.save()
         self.root.after(0, self.on_save_complete)
 
