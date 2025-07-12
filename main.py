@@ -115,17 +115,35 @@ class MP3Editor:
 
         print(*command)
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        os.remove(self.file_path)
-        os.rename(output_path_temp, output_path)
+        
         if result.returncode == 0:
+            # 更新後のファイルの長さを調べる
+            duration_cmd = [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", output_path_temp
+            ]
+            duration_result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                duration = float(duration_result.stdout.decode().strip())
+            except ValueError:
+                duration = 0
+            # 1秒未満の場合はエラーにする
+            print(duration)
+            if duration < 1.0:
+                raise ValueError("Error: Converted file duration is less than 1 second.")
+            
+
+            os.remove(self.file_path)
+            os.rename(output_path_temp, output_path)
             print("Metadata and cover image set successfully.")
             if os.path.exists(cover_temp_path):
                 os.remove(cover_temp_path)
+            self.file_path = output_path
         else:
-            print("Failed to set metadata.")
-            print(result.stderr.decode())
-
-        self.file_path = output_path
+            if os.path.exists(output_path_temp):
+                os.remove(output_path_temp)
+            error_msg = result.stderr.decode().strip()
+            raise RuntimeError(f"ffmpeg failed with error:\n{error_msg}")
 
 class MP3EditorApp:
     def __init__(self, root):
@@ -245,11 +263,20 @@ class MP3EditorApp:
         album = self.album_entry.get()
         artist = self.artist_entry.get()
         self.mp3_editor.set_metadata(title, album, artist, self.cover_data)
-        self.mp3_editor.save()
-        self.root.after(0, self.on_save_complete)
+        try:
+            self.mp3_editor.save()
+            self.root.after(0, self.on_save_complete)
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self.on_save_fail(error_msg))
 
     def on_save_complete(self):
         messagebox.showinfo("Success", "Metadata saved successfully.")
+
+    def on_save_fail(self, error_msg):
+        messagebox.showerror(
+            "Failed", "Failed to save metadata .\n" \
+            f"{error_msg}")
     
     def save_cover_image(self):
         if not self.cover_data:
