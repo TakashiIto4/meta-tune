@@ -1,5 +1,4 @@
 import re
-import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
@@ -7,153 +6,18 @@ from io import BytesIO
 import requests
 import threading
 import os
-
-class MP3Editor:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.cover_data = None
-        self.metadata = {
-            "title": "",
-            "album": "",
-            "artist": ""
-        }
-
-    def load_metadata(self):
-        # ffprobeを使ってメタデータを取得
-        title_result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format_tags=title",
-                "-of", "default=nw=1:nk=1", self.file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        ).stdout.decode().splitlines()
-        # タイトルが設定されていない場合はファイル名を初期設定
-        if title_result:
-            self.metadata["title"] = title_result[0]
-        else:
-            self.metadata["title"] = os.path.splitext(os.path.basename(self.file_path))[0]
-
-        # アルバム情報の取得
-        album_result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format_tags=album",
-                "-of", "default=nw=1:nk=1", self.file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        ).stdout.decode().splitlines()
-
-        # アルバム名が設定されていない場合は空文字列に設定
-        self.metadata["album"] = album_result[0] if album_result else ""
-
-        # アーティスト情報の取得
-        artist_result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format_tags=artist",
-                "-of", "default=nw=1:nk=1", self.file_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        ).stdout.decode().splitlines()
-
-        # アーティスト名が設定されていない場合は空文字列に設定
-        self.metadata["artist"] = artist_result[0] if artist_result else ""
-
-        # カバー画像の抽出
-        cover_temp_path = "./.temp/temp_cover.jpg"
-        # .tempフォルダが存在しない場合は作成
-        os.makedirs(os.path.dirname(cover_temp_path), exist_ok=True)
-        subprocess.run(
-            ["ffmpeg", "-i", self.file_path, "-an", "-vcodec", "copy", cover_temp_path],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        if os.path.exists(cover_temp_path):
-            with open(cover_temp_path, "rb") as f:
-                self.cover_data = f.read()
-            os.remove(cover_temp_path)
-
-    def set_metadata(self, title, album, artist, cover_data):
-        self.metadata["title"] = title
-        self.metadata["album"] = album
-        self.metadata["artist"] = artist
-        self.cover_data = cover_data
-
-    def save(self):
-        # タイトルの存在チェック
-        if not self.metadata['title']:
-            messagebox.showwarning("No Title", "Please enter a title before saving.")
-            return
-        
-        # ファイル名に使用できない記号を"_"に置換
-        sanitized_title = re.sub(r'[<>:"/\\|?*]', '_', self.metadata['title'])
-
-        output_path = os.path.join(os.path.dirname(self.file_path), f"{sanitized_title}.mp3")
-        # タイトルを変えない場合、出力ファイル名がすでに存在しffmpegの処理が解決しないため一度.temp.mp3で出力する用のパス
-        output_path_temp = os.path.join(os.path.dirname(output_path), ".temp.mp3")
-        print(f"output_path: {output_path}")
-            
-        # 一時的なカバー画像ファイルを作成
-        cover_temp_path = "./.temp/temp_cover.jpg"
-        if self.cover_data is not None and isinstance(self.cover_data, bytes):
-            with open(cover_temp_path, 'wb') as cover_file:
-                cover_file.write(self.cover_data)
-            # ffmpegコマンドを実行してメタデータを設定
-            command = [
-                'ffmpeg', '-i', self.file_path,
-                '-i', cover_temp_path,
-                '-map', '0:a', '-map', '1:v',
-                '-c', 'copy', '-id3v2_version', '3',
-                '-metadata', f"title={self.metadata['title']}",
-                '-metadata', f"album={self.metadata['album']}",
-                '-metadata', f"artist={self.metadata['artist']}",
-                '-disposition:1', 'attached_pic',
-                output_path_temp
-            ]
-
-        else:
-            # ffmpegコマンドを実行してメタデータを設定
-            command = [
-                'ffmpeg', '-i', self.file_path,
-                '-c', 'copy', '-id3v2_version', '3',
-                '-metadata', f"title={self.metadata['title']}",
-                '-metadata', f"album={self.metadata['album']}",
-                '-metadata', f"artist={self.metadata['artist']}",
-                output_path_temp
-            ]
-
-        print(*command)
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        if result.returncode == 0:
-            # 更新後のファイルの長さを調べる
-            duration_cmd = [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", output_path_temp
-            ]
-            duration_result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            try:
-                duration = float(duration_result.stdout.decode().strip())
-            except ValueError:
-                duration = 0
-            # 1秒未満の場合はエラーにする
-            print(duration)
-            if duration < 1.0:
-                raise ValueError("Error: Converted file duration is less than 1 second.")
-            
-
-            os.remove(self.file_path)
-            os.rename(output_path_temp, output_path)
-            print("Metadata and cover image set successfully.")
-            if os.path.exists(cover_temp_path):
-                os.remove(cover_temp_path)
-            self.file_path = output_path
-        else:
-            if os.path.exists(output_path_temp):
-                os.remove(output_path_temp)
-            error_msg = result.stderr.decode().strip()
-            raise RuntimeError(f"ffmpeg failed with error:\n{error_msg}")
+from pathlib import Path
+from mp3_editor import MP3Editor
 
 class MP3EditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("MetaTune")
-        script_dir = os.path.dirname(os.path.realpath(__file__))
+        script_dir = Path(__file__).resolve().parent
         icon_path = os.path.join(script_dir, 'music.ico')
         self.root.iconbitmap(icon_path)
-        self.file_path = ""
-        self.mp3_editor = MP3Editor("")
+        self.file_path: Path | None = None
+        self.mp3_editor = MP3Editor()
         self.cover_data = None
 
         input_field_width = 70
@@ -178,11 +42,11 @@ class MP3EditorApp:
         tk.Button(root, text="Save Cover Image as PNG/JPG", command=self.save_cover_image).pack()
 
     def select_file(self):
-        self.file_path = filedialog.askopenfilename(filetypes=[("MP3 files", "*.mp3")])
-        print(f"selected file path: {self.file_path}")
-        if self.file_path:
+        file_str = filedialog.askopenfilename(filetypes=[("MP3 files", "*.mp3")])
+        if file_str:  # ファイルが選ばれた場合
+            self.file_path = Path(file_str)  # ← str → Path に変換
             self.mp3_editor = MP3Editor(self.file_path)
-            
+
             # 別スレッドでメタデータを読み込む
             thread = threading.Thread(target=self.load_metadata_in_background)
             thread.start()
@@ -259,14 +123,24 @@ class MP3EditorApp:
         if not self.file_path:
             messagebox.showwarning("No file selected", "Please select an MP3 file first.")
             return
+
         title = self.title_entry.get()
         album = self.album_entry.get()
         artist = self.artist_entry.get()
         self.mp3_editor.set_metadata(title, album, artist, self.cover_data)
+
+        # 別スレッドで保存処理
+        thread = threading.Thread(target=self._save_metadata_thread)
+        thread.start()
+
+    def _save_metadata_thread(self):
+        print("DEBUG: save thread started")
         try:
             self.mp3_editor.save()
+            print("DEBUG: save finished")
             self.root.after(0, self.on_save_complete)
         except Exception as e:
+            print("DEBUG: save failed", e)
             error_msg = str(e)
             self.root.after(0, lambda: self.on_save_fail(error_msg))
 
@@ -303,6 +177,7 @@ class MP3EditorApp:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save image: {e}")
 
-root = tk.Tk()
-app = MP3EditorApp(root)
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MP3EditorApp(root)
+    root.mainloop()
