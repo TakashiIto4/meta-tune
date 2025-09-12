@@ -35,9 +35,7 @@ class MP3EditorApp:
         main_frame.columnconfigure(1, weight=1)  # 入力欄列が伸縮する
 
         # ファイル選択
-        ttk.Button(main_frame, text="Select MP3 File", command=self.select_file).grid(
-            row=0, column=1, pady=5
-        )
+        ttk.Button(main_frame, text="Select MP3 File", command=self.select_file).grid(row=0, column=1, pady=5)
 
         # メタデータ入力
         self._add_labeled_entry(main_frame, "Title:", 1)
@@ -45,42 +43,28 @@ class MP3EditorApp:
         self._add_labeled_entry(main_frame, "Artist:", 3)
 
         # カバー画像
-        self.cover_label = ttk.Label(
-            main_frame, text="No Cover Image", relief="solid", width=50, anchor="center"
-        )
+        self.cover_label = ttk.Label(main_frame, text="No Cover Image", relief="solid", width=50, anchor="center")
         self.cover_label.grid(row=4, column=1, pady=5)
 
         # 画像操作
-        ttk.Button(
-            main_frame, text="Select Local Image", command=self.select_cover_local
-        ).grid(row=5, column=1, pady=5)
-        ttk.Label(main_frame, text="Cover URL:").grid(
-            row=6, column=0, sticky="e", padx=5, pady=5
-        )
+        ttk.Button(main_frame, text="Select Local Image", command=self.select_cover_local).grid(row=5, column=1, pady=5)
+        ttk.Label(main_frame, text="Cover URL:").grid(row=6, column=0, sticky="e", padx=5, pady=5)
         self.cover_url_entry = ttk.Entry(main_frame, width=50)
         self.cover_url_entry.grid(row=6, column=1, sticky="ew", pady=5)
-        ttk.Button(
-            main_frame, text="Download from URL", command=self.download_cover_from_url
-        ).grid(row=6, column=2, pady=5)
+        ttk.Button(main_frame, text="Download from URL", command=self.download_cover_from_url).grid(
+            row=6, column=2, pady=5
+        )
 
         # メタデータ保存
-        ttk.Button(main_frame, text="Save Metadata", command=self.save_metadata).grid(
-            row=8, column=1, pady=10
-        )
-        ttk.Button(main_frame, text="Export Cover", command=self.save_cover_image).grid(
-            row=8, column=2, pady=10
-        )
+        ttk.Button(main_frame, text="Save Metadata", command=self.save_metadata).grid(row=8, column=1, pady=10)
+        ttk.Button(main_frame, text="Export Cover", command=self.save_cover_image).grid(row=8, column=2, pady=10)
 
         # ステータスバー
-        status_bar = ttk.Label(
-            root, textvariable=self.status_var, relief="sunken", anchor="w"
-        )
+        status_bar = ttk.Label(root, textvariable=self.status_var, relief="sunken", anchor="w")
         status_bar.grid(row=1, column=0, sticky="ew")
 
     def _add_labeled_entry(self, parent, label, row):
-        ttk.Label(parent, text=label).grid(
-            row=row, column=0, sticky="e", padx=5, pady=5
-        )
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=5, pady=5)
         entry = ttk.Entry(parent, width=50)
         entry.grid(row=row, column=1, sticky="ew", pady=5)
         if "Title" in label:
@@ -143,9 +127,7 @@ class MP3EditorApp:
         self.cover_label.config(image=self.cover_image, text="")
 
     def select_cover_local(self):
-        image_path = filedialog.askopenfilename(
-            filetypes=[("Image files", "*.jpg *.jpeg *.png")]
-        )
+        image_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png")])
         if image_path:
             self.update_cover(image_path)
 
@@ -162,18 +144,14 @@ class MP3EditorApp:
         original_image = Image.open(image_source)
         self.resize_display_cover(original_image)
         if isinstance(image_source, BytesIO):
-            self.cover_data = (
-                image_source.getvalue()
-            )  # 元の画像データをバイト形式で保持
+            self.cover_data = image_source.getvalue()  # 元の画像データをバイト形式で保持
         else:
             with open(image_source, "rb") as img_file:
                 self.cover_data = img_file.read()
 
     def save_metadata(self):
         if not self.file_path:
-            messagebox.showwarning(
-                "No file selected", "Please select an MP3 file first."
-            )
+            messagebox.showwarning("No file selected", "Please select an MP3 file first.")
             return
 
         self.status_var.set("Saving metadata...")
@@ -211,11 +189,7 @@ class MP3EditorApp:
             return
 
         # 優先順位：album → title → "cover"
-        base_name = (
-            self.mp3_editor.metadata.get("album")
-            or self.mp3_editor.metadata.get("title")
-            or "cover"
-        )
+        base_name = self.mp3_editor.metadata.get("album") or self.mp3_editor.metadata.get("title") or "cover"
         # ファイル名に使用できない文字を削除または置換
         base_name = re.sub(r'[<>:"/\\|?*]', "_", base_name)
 

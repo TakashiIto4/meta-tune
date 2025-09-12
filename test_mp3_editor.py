@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from mp3_editor import MP3Editor
 from pathlib import Path
 
+
 class TestMP3EditorLoadMetadata(unittest.TestCase):
     def setUp(self):
         # ダミーのMP3ファイルを作成
@@ -21,26 +22,18 @@ class TestMP3EditorLoadMetadata(unittest.TestCase):
     @patch("subprocess.run")
     def test_load_metadata_with_title(self, mock_run):
         # ffprobe の返り値をモック
-        mock_run.return_value = MagicMock(
-            stdout=b"Test Title\n",
-            stderr=b"",
-            returncode=0
-        )
+        mock_run.return_value = MagicMock(stdout=b"Test Title\n", stderr=b"", returncode=0)
         self.editor.load_metadata()
         self.assertEqual(self.editor.metadata["title"], "Test Title")
 
     @patch("subprocess.run")
     def test_load_metadata_without_title(self, mock_run):
         # タイトルなし
-        mock_run.return_value = MagicMock(
-            stdout=b"",
-            stderr=b"",
-            returncode=0
-        )
+        mock_run.return_value = MagicMock(stdout=b"", stderr=b"", returncode=0)
         self.editor.load_metadata()
         # ファイル名がタイトルとして設定される
         self.assertEqual(self.editor.metadata["title"], "test")
-    
+
     @patch("subprocess.run")
     def test_load_metadata_album_and_artist(self, mock_run):
         def side_effect(cmd, stdout, stderr):
@@ -58,7 +51,7 @@ class TestMP3EditorLoadMetadata(unittest.TestCase):
         self.assertEqual(self.editor.metadata["title"], "Title")
         self.assertEqual(self.editor.metadata["album"], "MyAlbum")
         self.assertEqual(self.editor.metadata["artist"], "MyArtist")
-    
+
     @patch("subprocess.run")
     def test_load_metadata_with_cover(self, mock_run):
         mock_run.return_value = MagicMock(stdout=b"", stderr=b"", returncode=0)
@@ -83,6 +76,7 @@ class TestMP3EditorLoadMetadata(unittest.TestCase):
         self.assertEqual(editor.metadata["artist"], "")
         self.assertIsNone(editor.cover_data)
 
+
 class TestMP3EditorSetMetadata(unittest.TestCase):
     def setUp(self):
         # ダミーのMP3ファイルを作成
@@ -102,6 +96,7 @@ class TestMP3EditorSetMetadata(unittest.TestCase):
         self.assertEqual(self.editor.metadata["album"], "Album")
         self.assertEqual(self.editor.metadata["artist"], "Artist")
         self.assertEqual(self.editor.cover_data, b"FAKECOVER")
+
 
 class TestMP3EditorSave(unittest.TestCase):
     def setUp(self):
@@ -134,7 +129,7 @@ class TestMP3EditorSave(unittest.TestCase):
             self.editor.save()
         except Exception:
             self.fail("save() raised Exception unexpectedly!")
-    
+
     @patch("subprocess.run")
     def test_save_with_cover(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
@@ -156,18 +151,18 @@ class TestMP3EditorSave(unittest.TestCase):
         self.editor.set_metadata("Title", "Album", "Artist", None)
         with self.assertRaises(RuntimeError):
             self.editor.save()
-    
+
     @patch("subprocess.run")
     def test_save_with_cover_ffmpeg_fail(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stderr=b"cover error")
         self.editor.set_metadata("Title", "Album", "Artist", b"FAKEJPEG")
         with self.assertRaises(RuntimeError):
             self.editor.save()
-    
+
     @patch("subprocess.run")
     def test_save_with_invalid_characters_in_title(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
-        self.editor.set_metadata('Invalid:/\\Title', 'Album', 'Artist', None)
+        self.editor.set_metadata("Invalid:/\\Title", "Album", "Artist", None)
 
         temp_dir = Path(".temp")
         temp_dir.mkdir(exist_ok=True)
@@ -176,7 +171,7 @@ class TestMP3EditorSave(unittest.TestCase):
 
         self.editor.save()
         self.assertTrue((Path(self.test_mp3).parent / "Invalid___Title.mp3").exists())
-    
+
     def test_save_without_file_path(self):
         self.editor = MP3Editor(None)
         with self.assertRaises(ValueError) as cm:
