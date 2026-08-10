@@ -2,7 +2,7 @@ import unittest
 import os
 import tempfile
 from unittest.mock import patch, MagicMock
-from mp3_editor import MP3Editor
+from mp3_editor import MP3Editor, TEMP_DIR, sanitize_filename
 from pathlib import Path
 
 
@@ -56,7 +56,7 @@ class TestMP3EditorLoadMetadata(unittest.TestCase):
     def test_load_metadata_with_cover(self, mock_run):
         mock_run.return_value = MagicMock(stdout=b"", stderr=b"", returncode=0)
 
-        cover_path = Path(".temp") / "temp_cover.jpg"
+        cover_path = TEMP_DIR / "temp_cover.jpg"
         cover_path.parent.mkdir(exist_ok=True)
         cover_path.write_bytes(b"FAKECOVERDATA")
 
@@ -119,7 +119,7 @@ class TestMP3EditorSave(unittest.TestCase):
         self.editor.set_metadata("NewTitle", "NewAlbum", "NewArtist", None)
 
         # save() が期待する一時出力ファイルパスを再現
-        temp_dir = Path(".temp")
+        temp_dir = TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         temp_mp3 = temp_dir / "temp_output.mp3"
         with open(temp_mp3, "wb") as f:
@@ -136,7 +136,7 @@ class TestMP3EditorSave(unittest.TestCase):
         fake_cover = b"FAKEJPEGDATA"
         self.editor.set_metadata("SongWithCover", "Album", "Artist", fake_cover)
 
-        temp_dir = Path(".temp")
+        temp_dir = TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         temp_mp3 = temp_dir / "temp_output.mp3"
         temp_mp3.write_bytes(b"DUMMY_MP3_DATA")
@@ -164,7 +164,7 @@ class TestMP3EditorSave(unittest.TestCase):
         mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
         self.editor.set_metadata("Invalid:/\\Title", "Album", "Artist", None)
 
-        temp_dir = Path(".temp")
+        temp_dir = TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         temp_mp3 = temp_dir / "temp_output.mp3"
         temp_mp3.write_bytes(b"DUMMY_MP3_DATA")
@@ -177,6 +177,17 @@ class TestMP3EditorSave(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             self.editor.save()
         self.assertEqual(str(cm.exception), "No MP3 file selected.")
+
+
+class TestMP3EditorModuleHelpers(unittest.TestCase):
+    def test_temp_dir_is_script_relative(self):
+        self.assertEqual(TEMP_DIR, Path(__file__).resolve().parent / ".temp")
+
+    def test_sanitize_filename_replaces_invalid_characters(self):
+        self.assertEqual(sanitize_filename('a<b>c:d"e/f\\g|h?i*j'), "a_b_c_d_e_f_g_h_i_j")
+
+    def test_sanitize_filename_leaves_valid_characters(self):
+        self.assertEqual(sanitize_filename("Normal Title 123"), "Normal Title 123")
 
 
 if __name__ == "__main__":

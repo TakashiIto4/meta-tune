@@ -4,6 +4,13 @@ import subprocess
 import re
 import shutil
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+TEMP_DIR = SCRIPT_DIR / ".temp"
+
+
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*]', "_", name)
+
 
 class MP3Editor:
     def __init__(self, file_path: Optional[Path] = None):
@@ -78,7 +85,7 @@ class MP3Editor:
         self.metadata["artist"] = artist_result[0] if artist_result else ""
 
         # カバー抽出
-        temp_dir = Path(".") / ".temp"
+        temp_dir = TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         cover_path = temp_dir / "temp_cover.jpg"
         subprocess.run(
@@ -108,10 +115,10 @@ class MP3Editor:
         if not self.file_path:
             raise ValueError("No MP3 file selected.")
 
-        sanitized_title = re.sub(r'[<>:"/\\|?*]', "_", self.metadata["title"])
+        sanitized_title = sanitize_filename(self.metadata["title"])
         output_path = self.file_path.parent / f"{sanitized_title}.mp3"
 
-        temp_dir = Path(".") / ".temp"
+        temp_dir = TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         temp_path = temp_dir / "temp_output.mp3"
         cover_path = temp_dir / "temp_cover.jpg"

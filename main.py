@@ -1,4 +1,3 @@
-import re
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
@@ -6,8 +5,26 @@ from io import BytesIO
 import requests
 import threading
 import os
+import shutil
+import sys
 from pathlib import Path
-from mp3_editor import MP3Editor
+from mp3_editor import MP3Editor, sanitize_filename
+from history import load_history, add_to_history
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+
+    DND_AVAILABLE = True
+except ImportError:
+    DND_AVAILABLE = False
+
+
+def check_dependencies() -> list[str]:
+    missing = []
+    for tool in ("ffmpeg", "ffprobe"):
+        if shutil.which(tool) is None:
+            missing.append(tool)
+    return missing
 
 
 class MP3EditorApp:
@@ -21,6 +38,7 @@ class MP3EditorApp:
         self.mp3_editor = MP3Editor()
         self.cover_data: bytes | None = None
         self.status_var = tk.StringVar(value="Ready")
+        self.recent_files: list[str] = load_history()
 
         # メインフレーム
         main_frame = ttk.Frame(root, padding=10)
@@ -35,7 +53,8 @@ class MP3EditorApp:
         main_frame.columnconfigure(1, weight=1)  # 入力欄列が伸縮する
 
         # ファイル選択
-        ttk.Button(main_frame, text="Select MP3 File", command=self.select_file).grid(row=0, column=1, pady=5)
+        self.select_button = ttk.Button(main_frame, text="Select MP3 File", command=self.select_file)
+        self.select_button.grid(row=0, column=1, pady=5)
 
         # メタデータ入力
         self._add_labeled_entry(main_frame, "Title:", 1)
@@ -56,12 +75,20 @@ class MP3EditorApp:
         )
 
         # メタデータ保存
-        ttk.Button(main_frame, text="Save Metadata", command=self.save_metadata).grid(row=8, column=1, pady=10)
-        ttk.Button(main_frame, text="Export Cover", command=self.save_cover_image).grid(row=8, column=2, pady=10)
+        self.save_button = ttk.Button(main_frame, text="Save Metadata", command=self.save_metadata)
+        self.save_button.grid(row=8, column=1, pady=10)
+        self.export_button = ttk.Button(main_frame, text="Export Cover", command=self.save_cover_image)
+        self.export_button.grid(row=8, column=2, pady=10)
 
         # ステータスバー
         status_bar = ttk.Label(root, textvariable=self.status_var, relief="sunken", anchor="w")
         status_bar.grid(row=1, column=0, sticky="ew")
+
+        # 進捗バー（処理中のみ表示）
+        self.progress = ttk.Progressbar(root, mode="indeterminate")
+
+        self._build_menu()
+        self._setup_drag_and_drop()
 
     def _add_labeled_entry(self, parent, label, row):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="e", padx=5, pady=5)
@@ -74,20 +101,115 @@ class MP3EditorApp:
         elif "Artist" in label:
             self.artist_entry = entry
 
+    # --- 進捗バー ---
+
+    def _start_progress(self):
+        self.progress.grid(row=2, column=0, sticky="ew")
+        self.progress.start(10)
+
+    def _stop_progress(self):
+        self.progress.stop()
+        self.progress.grid_remove()
+
+    # --- メニュー / 最近使ったファイル ---
+
+    def _build_menu(self):
+        self.menu_bar = tk.Menu(self.root)
+        file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.recent_menu = tk.Menu(file_menu, tearoff=0)
+        file_menu.add_cascade(label="Open Recent", menu=self.recent_menu)
+        self.menu_bar.add_cascade(label="File", menu=file_menu)
+        self.root.config(menu=self.menu_bar)
+        self._refresh_recent_menu()
+
+    def _refresh_recent_menu(self):
+        self.recent_menu.delete(0, tk.END)
+        if not self.recent_files:
+            self.recent_menu.add_command(label="(履歴なし)", state="disabled")
+            return
+        for path_str in self.recent_files:
+            self.recent_menu.add_command(label=path_str, command=lambda p=path_str: self._open_recent(p))
+
+    def _open_recent(self, path_str: str):
+        path = Path(path_str)
+        if not path.exists():
+            messagebox.showwarning("File Not Found", f"ファイルが見つかりません:\n{path_str}")
+            self.recent_files = [p for p in self.recent_files if p != path_str]
+            self._refresh_recent_menu()
+            return
+        self._load_mp3(path)
+
+    def _add_to_history(self, path: Path):
+        self.recent_files = add_to_history(path, self.recent_files)
+        self._refresh_recent_menu()
+
+    # --- ドラッグ&ドロップ ---
+
+    def _setup_drag_and_drop(self):
+        if not hasattr(self.root, "drop_target_register"):
+            return
+        self.root.drop_target_register(DND_FILES)
+        self.root.dnd_bind("<<Drop>>", self.on_drop_file)
+        self.cover_label.drop_target_register(DND_FILES)
+        self.cover_label.dnd_bind("<<Drop>>", self.on_drop_cover)
+
+    def on_drop_file(self, event):
+        paths = self.root.tk.splitlist(event.data)
+        if not paths:
+            return
+        path = Path(paths[0])
+        if path.suffix.lower() != ".mp3":
+            messagebox.showwarning("Invalid File", "MP3ファイルをドロップしてください。")
+            return
+        self._load_mp3(path)
+
+    def on_drop_cover(self, event):
+        paths = self.root.tk.splitlist(event.data)
+        if not paths:
+            return
+        path = Path(paths[0])
+        if path.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+            messagebox.showwarning("Invalid Image", "画像ファイル(.jpg/.jpeg/.png)をドロップしてください。")
+            return
+        self.update_cover(str(path))
+
+    # --- ファイル読み込み ---
+
     def select_file(self):
         file_str = filedialog.askopenfilename(filetypes=[("MP3 files", "*.mp3")])
         if file_str:  # ファイルが選ばれた場合
-            self.file_path = Path(file_str)  # ← str → Path に変換
-            self.mp3_editor = MP3Editor(self.file_path)
+            self._load_mp3(Path(file_str))
 
-            # 別スレッドでメタデータを読み込む
-            thread = threading.Thread(target=self.load_metadata_in_background)
-            thread.start()
+    def _load_mp3(self, path: Path):
+        self.file_path = path
+        self.mp3_editor = MP3Editor(self.file_path)
+        self.select_button.config(state="disabled")
+        self.status_var.set("Loading metadata...")
+        self._start_progress()
+
+        thread = threading.Thread(target=self.load_metadata_in_background, daemon=True)
+        thread.start()
 
     def load_metadata_in_background(self):
-        self.mp3_editor.load_metadata()
+        try:
+            self.mp3_editor.load_metadata()
+            self.root.after(0, self.on_load_complete)
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self.on_load_fail(error_msg))
+
+    def on_load_complete(self):
         self.update_metadata_display()
         self.status_var.set(f"Loaded - {self.file_path}")
+        self.select_button.config(state="normal")
+        self._stop_progress()
+        self._add_to_history(self.file_path)
+
+    def on_load_fail(self, error_msg):
+        self.status_var.set("Error")
+        self.select_button.config(state="normal")
+        self._stop_progress()
+        messagebox.showerror("Failed to load", f"メタデータの読み込みに失敗しました。\n{error_msg}")
 
     def update_metadata_display(self):
         title = self.mp3_editor.metadata["title"]
@@ -110,6 +232,7 @@ class MP3EditorApp:
             self.cover_data = cover_data
         else:
             self.cover_image = None
+            self.cover_data = None
             self.cover_label.config(image="", text="No Cover Image")
         messagebox.showinfo("File Selected", f"Selected: {self.file_path}")
 
@@ -149,38 +272,74 @@ class MP3EditorApp:
             with open(image_source, "rb") as img_file:
                 self.cover_data = img_file.read()
 
+    # --- 保存 ---
+
     def save_metadata(self):
         if not self.file_path:
             messagebox.showwarning("No file selected", "Please select an MP3 file first.")
             return
 
-        self.status_var.set("Saving metadata...")
         title = self.title_entry.get()
         album = self.album_entry.get()
         artist = self.artist_entry.get()
-        self.mp3_editor.set_metadata(title, album, artist, self.cover_data)
 
-        # 別スレッドで保存処理
-        thread = threading.Thread(target=self._save_metadata_thread)
+        delete_original = False
+        sanitized_new_title = sanitize_filename(title)
+        if sanitized_new_title != self.file_path.stem:
+            delete_original = messagebox.askyesno(
+                "Confirm Rename",
+                f"タイトルが変更されています。\n元のファイル「{self.file_path.name}」を削除しますか？",
+            )
+
+        self.mp3_editor.set_metadata(title, album, artist, self.cover_data)
+        self.status_var.set("Saving metadata...")
+        self.save_button.config(state="disabled")
+        self.export_button.config(state="disabled")
+        self._start_progress()
+
+        original_path = self.file_path
+        thread = threading.Thread(
+            target=self._save_metadata_thread, args=(original_path, delete_original), daemon=True
+        )
         thread.start()
 
-    def _save_metadata_thread(self):
-        print("DEBUG: save thread started")
+    def _save_metadata_thread(self, original_path, delete_original):
         try:
             self.mp3_editor.save()
-            print("DEBUG: save finished")
-            self.root.after(0, self.on_save_complete)
         except Exception as e:
-            print("DEBUG: save failed", e)
             error_msg = str(e)
             self.root.after(0, lambda: self.on_save_fail(error_msg))
+            return
 
-    def on_save_complete(self):
+        delete_warning = None
+        if delete_original and self.mp3_editor.file_path != original_path:
+            try:
+                original_path.unlink()
+            except OSError as e:
+                delete_warning = str(e)
+
+        self.root.after(0, lambda: self.on_save_complete(delete_warning))
+
+    def on_save_complete(self, delete_warning=None):
+        self.file_path = self.mp3_editor.file_path
         self.status_var.set("Success")
-        messagebox.showinfo("Success", "Metadata saved successfully.")
+        self.save_button.config(state="normal")
+        self.export_button.config(state="normal")
+        self._stop_progress()
+        if delete_warning:
+            messagebox.showwarning(
+                "Partial Success",
+                f"メタデータは保存されましたが、元ファイルの削除に失敗しました。\n{delete_warning}",
+            )
+        else:
+            messagebox.showinfo("Success", "Metadata saved successfully.")
+        self._add_to_history(self.file_path)
 
     def on_save_fail(self, error_msg):
         self.status_var.set("Error")
+        self.save_button.config(state="normal")
+        self.export_button.config(state="normal")
+        self._stop_progress()
         messagebox.showerror("Failed", "Failed to save metadata .\n" f"{error_msg}")
 
     def save_cover_image(self):
@@ -190,8 +349,7 @@ class MP3EditorApp:
 
         # 優先順位：album → title → "cover"
         base_name = self.mp3_editor.metadata.get("album") or self.mp3_editor.metadata.get("title") or "cover"
-        # ファイル名に使用できない文字を削除または置換
-        base_name = re.sub(r'[<>:"/\\|?*]', "_", base_name)
+        base_name = sanitize_filename(base_name)
 
         # 保存先ディレクトリ（MP3ファイルと同じ場所）
         save_dir = os.path.dirname(self.file_path) if self.file_path else "."
@@ -206,6 +364,18 @@ class MP3EditorApp:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    missing = check_dependencies()
+    if missing:
+        temp_root = tk.Tk()
+        temp_root.withdraw()
+        messagebox.showerror(
+            "Missing Dependency",
+            f"次のツールが見つかりません: {', '.join(missing)}\n"
+            "ffmpeg / ffprobe をインストールし、PATHに追加してから再起動してください。",
+        )
+        temp_root.destroy()
+        sys.exit(1)
+
+    root = TkinterDnD.Tk() if DND_AVAILABLE else tk.Tk()
     app = MP3EditorApp(root)
     root.mainloop()
